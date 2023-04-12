@@ -1,0 +1,156 @@
+USE ROLE accountadmin;
+create or replace role Admin;
+create or replace role pii;
+
+GRANT ROLE admin TO ROLE accountadmin;
+GRANT ROLE pii TO ROLE accountadmin;
+GRANT CREATE ROLE ON ACCOUNT TO  admin;
+-- use role admin;
+-- create or replace role Developer;
+
+
+
+show roles;
+
+USE ROLE accountadmin;
+
+CREATE OR REPLACE WAREHOUSE assignment_wh WITH
+WAREHOUSE_SIZE='MEDIUM'
+AUTO_SUSPEND = 180
+AUTO_RESUME = TRUE
+INITIALLY_SUSPENDED=TRUE
+MIN_CLUSTER_COUNT = 1
+MAX_CLUSTER_COUNT = 3;
+show databases;
+USE WAREHOUSE assignment_wh;
+
+show roles;
+GRANT ALL PRIVILEGES ON warehouse assignment_wh TO ROLE ADMIN;
+
+use role accountadmin;
+
+GRANT CREATE DATABASE ON ACCOUNT TO admin;
+
+use role admin;
+
+
+USE WAREHOUSE assignment_wh;
+CREATE or replace DATABASE assignment_db;
+show databases;
+
+create or replace role Developer;
+GRANT ROLE developer TO ROLE admin;
+show roles;
+
+
+CREATE SCHEMA my_schema;
+show schemas;
+
+create or replace table employee_local(
+  employee_id number,
+  first_name string,
+  last_name string,
+  email string,
+  phone_number string,
+  hire_date date,
+  job_id string,
+  salary number,
+  commission_pct string,
+  MANAGER_ID number,
+  DEPARTMENT_ID number,
+  elt_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
+  elt_by varchar default 'assignment',
+  file_name varchar
+  
+);
+
+create or replace table emoployee_variant(
+  single_row variant
+);
+show stages;
+
+drop stage my_stage_local_csv;
+
+CREATE OR REPLACE STAGE my_stage_local_csv
+  file_format = (type = 'CSV' FIELD_DELIMITER = ',' SKIP_HEADER = 1);
+
+CREATE OR REPLACE STAGE my_stage_variant
+file_format = (type = 'json');
+
+
+list @my_stage_local_csv;
+
+desc table emoployee_variant;
+select * from employee_local limit 5;
+select * from emoployee_variant;
+
+drop stage my_stage_parquet;
+
+CREATE OR REPLACE FILE FORMAT my_parquet_format
+  TYPE = PARQUET;
+
+CREATE OR REPLACE STAGE my_stage_parquet
+file_format = my_parquet_format;
+
+
+SELECT *
+  FROM TABLE(
+    INFER_SCHEMA(
+      LOCATION=>'@my_stage_parquet'
+      , FILE_FORMAT=>'my_parquet_format'
+      )
+    );
+
+SELECT * FROM @my_stage_parquet/userdata1.parquet;
+
+
+create or replace table employee_external(
+  employee_id number,
+  first_name string,
+  last_name string,
+  email string,
+  phone_number string,
+  hire_date date,
+  job_id string,
+  salary number,
+  commission_pct string,
+  MANAGER_ID number,
+  DEPARTMENT_ID number,
+  elt_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
+  elt_by varchar default 'assignment',
+  file_name varchar
+  
+);
+
+CREATE OR REPLACE FILE FORMAT external_file
+  TYPE = CSV
+  FIELD_DELIMITER = ','
+  SKIP_HEADER = 1;
+
+
+  USE ROLE accountadmin;
+  USE ROLE admin;
+
+
+GRANT CREATE INTEGRATION ON ACCOUNT TO admin WITH GRANT OPTION;
+
+CREATE or replace STORAGE INTEGRATION s3_integration
+type = external_stage
+storage_provider = s3
+enabled = true
+storage_aws_role_arn = 'arn:aws:iam::366068070173:role/s3_chakradhar'
+storage_allowed_locations = ('s3://assignment-snowflake-praneeth/employees.csv');
+
+   DESC INTEGRATION s3_integration;
+
+CREATE OR REPLACE STAGE external_stage
+URL = 's3://assignment-snowflake-praneeth/employees.csv'
+STORAGE_INTEGRATION = s3_integration
+FILE_FORMAT = external_file;
+
+list @external_stage;
+
+
+copy into employee_external(employee_id,first_name,last_name,email,phone_number,hire_date,job_id,salary,commission_pct,MANAGER_ID,DEPARTMENT_ID,file_name) from (select $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,METADATA$FILENAME FROM @external_stage (file_format=> external_file))   on_error='skip_file';
+
+
